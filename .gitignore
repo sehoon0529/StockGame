@@ -1,0 +1,23 @@
+# 빌드 및 컴파일 결과물 무시
+build/
+*build-*
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.app
+
+# Qt Creator 설정 파일 무시 (개인 설정이므로 공유 X)
+*.user
+*.user.*
+.qmake.stash
+*.qmlc
+*.jsc
+
+# CMake 생성 파일 무시
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
