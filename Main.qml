@@ -172,6 +172,25 @@ ApplicationWindow {
                                 font.pixelSize: 12; anchors.horizontalCenter: parent.horizontalCenter
                             }
                         }
+                        Rectangle {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.margins: 5
+                                width: ownedText.contentWidth + 10
+                                height: 20
+                                color: "#ff9800" // 잘 보이도록 주황색 배경
+                                radius: 10
+                                visible: model.owned > 0 // 보유량이 0보다 클 때만 보임
+                        Text {
+                            id: ownedText
+                            anchors.centerIn: parent
+                            text: model.owned + "주"
+                            color: "white"
+                            font.bold: true
+                            font.pixelSize: 11
+                            }
+                        }
+
                         MouseArea {
                             id: mouseArea; anchors.fill: parent; hoverEnabled: true
                             onClicked: {
