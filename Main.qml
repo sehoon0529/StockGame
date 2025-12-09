@@ -269,6 +269,12 @@ ApplicationWindow {
         property int stockOwned: 0
         property var priceHistory: []
         property int tradeAmount: 1
+        onOpened: {
+                    tradeAmount = 1
+                    if (amountSpin) {
+                        amountSpin.value = 1
+                    }
+                }
         property string description: ""
 
         background: Rectangle { color: "#2c2c2c"; border.color: "#555"; radius: 10 }
