@@ -6,45 +6,43 @@
 #include <QVariant>
 #include <QString>
 #include <QDebug>
-#include <iostream>
 #include <string>
 #include <vector>
 #include <random>
-#include <iomanip>
 #include <algorithm>
-#include <set>
 #include <cmath>
 
 using namespace std;
 
 struct Effect {
-    string name;
-    int impact;
-    int duration;
+    string name; //영향 이름
+    int impact; //주가에 미치는 영향
+    int duration; //남은 지속시간
+    bool reversed; //종료 후 반전 플래그
 };
 
 struct Company {
-    string name;
-    double BasePrice;
-    double FinalPrice;
-    vector<string> features;
-    vector<Effect> effects;
-    int amount;
-    vector<double> history;
-    string description;
+    string name; //회사 이름
+    double BasePrice; //기본 주가
+    double FinalPrice; //계산 후의 최종 주가
+    vector<string> features; //회사의 특징
+    vector<Effect> effects; //적용중인 영향(이펙트)
+    int amount; //보유중인 주식 수
+    vector<double> history; //주가 변동 기록
+    string description; //회사 정보 설명
 };
 
 struct Event {
-    string name;
-    bool single;
-    bool stackable;
-    int impact;
-    vector<string> target;
-    vector<Effect> effect;
-    int cooltime;
-    int current_cooltime;
-    string sentence;
-    int chance;
+    string name; //이벤트 이름
+    bool single; //이벤트 대상이 하나인지 체크
+    bool stackable; //이벤트 효과가 같은 회사에 중첩 가능한지 체크
+    int impact; //주가에 미치는 영향
+    vector<string> target; //이벤트 영향을 받는 회사의 특징
+    vector<Effect> effect; //어떤 버프/디버프를 부여하는지
+    int cooltime; //이벤트 쿨타임(일수)
+    int current_cooltime; //남은 쿨타임(일수)
+    string sentence; //뉴스 내용
+    int chance; //이벤트 발생 확률
 };
 
 class GameBackend : public QObject {
@@ -205,21 +203,51 @@ private:
     void UpdateEffects() {
         for (auto& company : companyList) {
             for (int i = company.effects.size() - 1; i >= 0; i--) {
+
                 company.effects[i].duration--;
+
+                // 지속시간이 끝난 경우
                 if (company.effects[i].duration <= 0) {
-                    company.effects.erase(company.effects.begin() + i);
+
+                    // 아직 반전되지 않은 효과라면 → 반전 처리
+                    if (!company.effects[i].reversed) {
+
+                        // impact 반전
+                        company.effects[i].impact = -company.effects[i].impact;
+                        company.effects[i].reversed = true;
+
+                        // 초기 지속시간 가져오기
+                        int originalDuration = 0;
+                        for (auto& base : effectList) {
+                            if (base.name == company.effects[i].name) {
+                                originalDuration = base.duration;
+                                break;
+                            }
+                        }
+
+                        // 재적용
+                        company.effects[i].duration = originalDuration;
+                    }
+                    else {
+                        // 이미 반전된 효과인데 지속시간까지 끝났다면 → 최종 삭제
+                        company.effects.erase(company.effects.begin() + i);
+                    }
                 }
             }
         }
     }
 
+
     double CalculatePrice(Company& company) {
         double value = 0;
+        //현재 기업이 가진 모든 버프/디버프 영향력 합산
         for (const auto& effect : company.effects) value += effect.impact;
 
+        //소폭 변동(기준가에 적용)
         double minorChange = roll(50) ? 1.02 : 0.98;
         company.BasePrice *= minorChange;
 
+        //이벤트 영향 적용(기준가 적용)
         double buffChangePercent = 0.0;
         if (value > 0) {
             if (roll(90)) buffChangePercent = random_num(0, value) / 100.0;
@@ -231,6 +259,7 @@ private:
         }
 
         company.BasePrice *= (1.0 + buffChangePercent);
+        //노이즈(최종가 적용,95%~105%)
         double noise = random_num(95, 105) / 100.0;
         double result = company.BasePrice * noise;
 
@@ -241,57 +270,82 @@ private:
 
     void ProcessEvents() {
         vector<string> finalNews;
+        //발생 여부 판정(모든 이벤트 순회)
         for (auto& event : eventList) {
+            //이벤트 쿨타임 체크
             if(event.current_cooltime > 0) continue;
+            //이벤트 확률 체크
             if (random_num(1, 100) > event.chance) continue;
 
+            //이벤트 타겟 결정
             vector<Company*> candidates;
+            //모든 회사 순회
             for (auto& company : companyList) {
+                //이벤트 타겟이 비어있으면(모든 대상) true 아니면 false
                 bool matchesTarget = event.target.empty();
                 if (!matchesTarget) {
+                    //회사 특징 순회
                     for (const auto& feature : company.features) {
+                        //이벤트 타겟 목록 안에 회사의 특징이 있는지 검사
                         if (find(event.target.begin(), event.target.end(), feature) != event.target.end()) {
-                            matchesTarget = true; break;
+                            //찾았으면 합격
+                            matchesTarget = true;
+                            break;
                         }
                     }
                 }
+                //찾지 못했으면 해당 회사 건너뛰기
                 if (!matchesTarget) continue;
-
+                //중복 적용 검사(중첩 불가능이면 검사 건너뜀)
                 if (!event.stackable) candidates.push_back(&company);
+                //중복 검사 시작
                 else {
                     bool hasEffect = false;
+                    //이벤트 효과 목록 순회
                     for (auto& eff : event.effect) {
-                        if (CheckEffect(company, eff.name)) { hasEffect = true; break; }
+                        //해당 효과가 현재 회사에 있는지 체크
+                        if (CheckEffect(company, eff.name)){
+                            hasEffect = true;
+                            break;
+                        }
                     }
+                    //효과가 없다면 후보로 등록
                     if (!hasEffect) candidates.push_back(&company);
                 }
             }
 
+            //후보가 존재하는지 확인
             if (candidates.empty()) continue;
+            //쿨타임 시작
             event.current_cooltime = event.cooltime;
 
             vector<Company*> applyCompanies;
+            //단일 대상 이벤트면
             if (event.single) {
+                //후보 하나만 랜덤 선택
                 int idx = random_num(0, candidates.size() - 1);
                 applyCompanies.push_back(candidates[idx]);
+            //전체 대상 이벤트면
             } else {
                 applyCompanies = candidates;
             }
-
+            //주가 변동 시작
             for (auto* company : applyCompanies) {
+                //기준가 변경
                 company->BasePrice *= (1.0 + event.impact / 100.0);
+                //영향(이펙트) 적용
                 for (auto& eff : event.effect) AddEffect(*company, eff.name);
-
+                //뉴스 텍스트
                 string msg = event.sentence;
                 size_t pos = msg.find("<company>");
                 if (pos != string::npos) msg.replace(pos, 9, company->name);
-
+                //뉴스 중복 방지
                 bool exists = false;
                 for(const auto& existingMsg : finalNews) { if(existingMsg == msg) { exists = true; break; } }
                 if (!exists) finalNews.push_back(msg);
             }
         }
-
+        //일반 뉴스 추가
         if (!newsList.empty()) {
             int newsCount = random_num(2, 3);
             for (int i = 0; i < newsCount; i++) {
@@ -339,17 +393,18 @@ private:
         };
 
 
-        effectList = {//전체적으로 값을 낮추고, 양수 효과들을 좀더 값을 올림
-            {"해외시장 진출", +4, 12}, {"유행", +3, 5}, {"신제품 개발 성공", +5, 7}, {"신규 공장 완성", +5, 10},
-            {"정부의 산업 지원 발표", +5, 10}, {"대규모 투자 유치", +4, 8}, {"신규 기술 특허 획득", +4, 6},
-            {"경쟁사 제품 문제 발생", +3, 6}, {"핵심 파트너십 체결", +3, 7}, {"유명 인플루언서 홍보", +2, 4},
-            {"해외 규제 완화 혜택", +4, 10}, {"대형 계약 수주", +5, 8}, {"브랜드 이미지 상승", +2, 6}, {"시장 점유율 증가", +3, 7},
+        effectList = {
+            {"해외시장 진출", +4, 12, false}, {"유행", +3, 5, false}, {"신제품 개발 성공", +5, 7, false}, {"신규 공장 완성", +5, 10, false},
+            {"정부의 산업 지원 발표", +5, 10, false}, {"대규모 투자 유치", +4, 8, false}, {"신규 기술 특허 획득", +4, 6, false},
+            {"경쟁사 제품 문제 발생", +3, 6, false}, {"핵심 파트너십 체결", +3, 7, false}, {"유명 인플루언서 홍보", +2, 4, false},
+            {"해외 규제 완화 혜택", +4, 10, false}, {"대형 계약 수주", +5, 8, false}, {"브랜드 이미지 상승", +2, 6, false}, {"시장 점유율 증가", +3, 7, false},
 
-            {"파업", -4, 4}, {"인력 이탈", -3, 5}, {"주요 자원 수급 불안", -4, 6}, {"안정성 문제 제기", -4, 5},
-            {"정부 규제 강화", -3, 10}, {"경쟁사 신제품 출시", -3, 6}, {"주요 고객사 계약 종료", -3, 8},
-            {"안전 문제 발생", -3, 7}, {"부정적 여론 확산", -2, 5}, {"경영진 교체 불안감", -2, 5},
-            {"원자재 가격 급등", -3, 8}, {"환율 악재", -2, 6}, {"해외 규제 리스크", -3, 7}
+            {"파업", -4, 4, false}, {"인력 이탈", -3, 5, false}, {"주요 자원 수급 불안", -4, 6, false}, {"안정성 문제 제기", -4, 5, false},
+            {"정부 규제 강화", -3, 10, false}, {"경쟁사 신제품 출시", -3, 6, false}, {"주요 고객사 계약 종료", -3, 8, false},
+            {"안전 문제 발생", -3, 7, false}, {"부정적 여론 확산", -2, 5, false}, {"경영진 교체 불안감", -2, 5, false},
+            {"원자재 가격 급등", -3, 8, false}, {"환율 악재", -2, 6, false}, {"해외 규제 리스크", -3, 7, false}
         };
+
 
         eventList = {//일부 뉴스문장 수정, 즉시 양수 버프값 약간 증가, 소프트웨어 회사에게 악영향을 줄수있는 이벤트 2개 추가
                      {"해외시장 진출", true, false, +9, {}, {{"해외시장 진출"}}, 3, 0, "<company>, 해외시장 신규 진출 성공… 해외 수요 증가 기대", 20},
